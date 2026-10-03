@@ -2,29 +2,18 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from .models import (
     User, Shop, Category, Product, ProductInfo,
-    Parameter, ProductParameter, Contact, ConfirmEmailToken
+    Parameter, ProductParameter, Contact,
+    Order, OrderItem, ConfirmEmailToken,
 )
 
 
 @admin.register(User)
 class CustomUserAdmin(UserAdmin):
     model = User
-    list_display = ('email', 'first_name', 'last_name', 'type', 'is_active', 'is_staff')
+    list_display = ('email', 'username', 'first_name', 'last_name', 'type', 'is_active', 'is_staff')
     list_filter = ('type', 'is_active', 'is_staff')
-    search_fields = ('email', 'first_name', 'last_name')
+    search_fields = ('email', 'username', 'first_name', 'last_name')
     ordering = ('email',)
-    fieldsets = (
-        (None, {'fields': ('email', 'password')}),
-        ('Личные данные', {'fields': ('first_name', 'last_name', 'middle_name', 'company', 'position', 'type')}),
-        ('Права', {'fields': ('is_active', 'is_staff', 'is_superuser', 'groups', 'user_permissions')}),
-        ('Даты', {'fields': ('last_login', 'date_joined')}),
-    )
-    add_fieldsets = (
-        (None, {
-            'classes': ('wide',),
-            'fields': ('email', 'password1', 'password2', 'type', 'is_staff', 'is_active'),
-        }),
-    )
 
 
 @admin.register(Shop)
@@ -36,7 +25,7 @@ class ShopAdmin(admin.ModelAdmin):
 
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
-    list_display = ('name', 'parent')
+    list_display = ('name',)
     search_fields = ('name',)
 
 
@@ -69,8 +58,19 @@ class ContactAdmin(admin.ModelAdmin):
     list_display = ('user', 'city', 'street', 'house', 'phone')
 
 
+@admin.register(Order)
+class OrderAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user', 'state', 'dt', 'contact')
+    list_filter = ('state', 'dt')
+    search_fields = ('user__email',)
+
+
+@admin.register(OrderItem)
+class OrderItemAdmin(admin.ModelAdmin):
+    list_display = ('order', 'product_info', 'quantity')
+    search_fields = ('order__id', 'product_info__product__name')
+
+
 @admin.register(ConfirmEmailToken)
 class ConfirmEmailTokenAdmin(admin.ModelAdmin):
     list_display = ('user', 'key', 'created_at')
-
-# Register your models here.

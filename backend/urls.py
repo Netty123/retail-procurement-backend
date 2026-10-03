@@ -1,10 +1,20 @@
 from django.urls import path
 
-from backend.views import PartnerUpdate
+from backend.views import (
+    PartnerUpdate,
+    RegisterUserView,
+    ConfirmEmailView,
+    LoginView,
+    UserDetailsView,
+)
 
 app_name = 'backend'
 
 urlpatterns = [
-    # POST с url на YAML - обновление прайса
     path('partner/update', PartnerUpdate.as_view(), name='partner-update'),
+
+    path('user/register', RegisterUserView.as_view(), name='user-register'),
+    path('user/register/confirm', ConfirmEmailView.as_view(), name='register-confirm'),
+    path('user/login', LoginView.as_view(), name='user-login'),
+    path('user/details', UserDetailsView.as_view(), name='user-details'),
 ]

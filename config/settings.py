@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 import os
 from dotenv import load_dotenv
+from datetime import timedelta
 
 load_dotenv()
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -41,12 +42,12 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'django_rest_passwordreset',
     # сторонние
     'rest_framework',
+    'rest_framework_simplejwt',
     'django_filters',
     'drf_spectacular',
-
+    'django_rest_passwordreset',
     # свои
     'backend',
     'orders',
@@ -145,8 +146,21 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Позже добавим JWT для API-клиентов.
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ),
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
 }
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}
+
+# В разработке шлём письма в консоль, а не через SMTP.
+# Так токен подтверждения сразу видно в runserver.
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+FRONTEND_URL = 'http://localhost:8000'

@@ -7,16 +7,26 @@ API-views для магазинов и товаров.
 from urllib.request import urlopen
 from yaml import load as load_yaml, Loader
 
+from django.contrib.auth import authenticate
 from django.core.exceptions import ValidationError
+from django.core.mail import send_mail
 from django.core.validators import URLValidator
 from django.db import transaction
 from django.http import JsonResponse
+from django.urls import reverse
+
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from backend.models import (
     Shop, Category, Product, ProductInfo,
     Parameter, ProductParameter,
+    User, ConfirmEmailToken,
 )
+from backend.serializers import UserSerializer, RegisterUserSerializer
 
 
 class PartnerUpdate(APIView):
@@ -122,3 +132,133 @@ class PartnerUpdate(APIView):
                 )
 
         return JsonResponse({'Status': True})
+
+
+class RegisterUserView(APIView):
+    """
+    POST /api/v1/user/register
+    body: email, username, first_name, last_name, password
+
+    Создаёт пользователя с is_active=False и шлёт письмо с токеном.
+    Активация — через /user/register/confirm.
+    """
+
+    def post(self, request, *args, **kwargs):
+        if not request.data:
+            return Response(
+                {'Status': False, 'Errors': 'Не указаны все необходимые аргументы'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = RegisterUserSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {'Status': False, 'Errors': serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = serializer.save()
+
+        # Токен создаётся сам — генератор внутри ConfirmEmailToken.save()
+        token = ConfirmEmailToken.objects.create(user=user)
+        confirm_url = (
+            f'{request.build_absolute_uri(reverse("backend:register-confirm"))}'
+            f'?email={user.email}&token={token.key}'
+        )
+        send_mail(
+            subject='Подтверждение регистрации',
+            message=f'Привет, {user.first_name}! Твой код: {token.key}\nСсылка: {confirm_url}',
+            from_email=None,
+            recipient_list=[user.email],
+        )
+
+        return Response(
+            {'Status': True, 'user': UserSerializer(user).data},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class ConfirmEmailView(APIView):
+    """
+    POST /api/v1/user/register/confirm
+    body: email, token
+
+    Активирует пользователя и удаляет использованный токен.
+    """
+
+    def post(self, request, *args, **kwargs):
+        email = request.data.get('email')
+        token_key = request.data.get('token')
+
+        if not email or not token_key:
+            return Response(
+                {'Status': False, 'Errors': 'Не указаны email и token'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            token = ConfirmEmailToken.objects.get(user__email=email, key=token_key)
+        except ConfirmEmailToken.DoesNotExist:
+            return Response(
+                {'Status': False, 'Errors': 'Неверный токен или email'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = token.user
+        user.is_active = True
+        user.save()
+        token.delete()
+
+        return Response({'Status': True})
+
+
+class LoginView(APIView):
+    """
+    POST /api/v1/user/login
+    body: email, password
+
+    Возвращает пару JWT: access и refresh.
+    """
+
+    def post(self, request, *args, **kwargs):
+        email = request.data.get('email')
+        password = request.data.get('password')
+
+        if not email or not password:
+            return Response(
+                {'Status': False, 'Errors': 'Не указаны email и password'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = authenticate(request, email=email, password=password)
+        if user is None:
+            return Response(
+                {'Status': False, 'Errors': 'Неверный email или пароль'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        # Без этой проверки неактивированный юзер получил бы токен
+        if not user.is_active:
+            return Response(
+                {'Status': False, 'Errors': 'Email не подтверждён'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        refresh = RefreshToken.for_user(user)
+        return Response({
+            'Status': True,
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+        })
+
+
+class UserDetailsView(APIView):
+    """
+    GET /api/v1/user/details
+    header: Authorization: Bearer <access_token>
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        return Response(UserSerializer(request.user).data)

@@ -28,11 +28,14 @@ from backend.models import (
     Shop, Category, Product, ProductInfo,
     Parameter, ProductParameter,
     User, ConfirmEmailToken,
+    Order, OrderItem,
 )
 from backend.serializers import (
-    UserSerializer, RegisterUserSerializer, ProductInfoSerializer,
+    UserSerializer, RegisterUserSerializer, ProductInfoSerializer, BasketSerializer, OrderItemSerializer,
 )
 
+from backend.models import Order, OrderItem
+from backend.serializers import BasketSerializer, OrderItemSerializer
 
 class PartnerUpdate(APIView):
     """
@@ -269,3 +272,110 @@ class ProductInfoDetailView(RetrieveAPIView):
         'product', 'product__category', 'shop',
     ).prefetch_related('product_parameters__parameter')
     serializer_class = ProductInfoSerializer
+
+
+
+
+class BasketView(APIView):
+    """
+    Корзина пользователя. Только для авторизованных.
+
+    GET     — содержимое корзины
+    POST    — добавить товар (product_info_id, quantity)
+    PUT     — изменить количество (id позиции, quantity)
+    DELETE  — удалить позицию (id)
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        # Корзина есть не у всех — у кого ещё нет, отдаём пустую
+        basket, _ = Order.objects.get_or_create(
+            user=request.user,
+            state='basket',
+        )
+        serializer = BasketSerializer(basket)
+        return Response(serializer.data)
+
+    def post(self, request, *args, **kwargs):
+        items = request.data.get('items', [])
+        if not items:
+            return Response(
+                {'Status': False, 'Errors': 'Не передан список items'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        basket, _ = Order.objects.get_or_create(
+            user=request.user,
+            state='basket',
+        )
+
+        created = []
+        for item in items:
+            product_info_id = item.get('product_info_id')
+            quantity = item.get('quantity', 1)
+
+            if not product_info_id:
+                continue
+
+            # Если позиция уже есть — увеличиваем количество, не создаём дубль
+            order_item, _ = OrderItem.objects.get_or_create(
+                order=basket,
+                product_info_id=product_info_id,
+                defaults={'quantity': quantity},
+            )
+            if not _:
+                order_item.quantity += quantity
+                order_item.save()
+
+            created.append(order_item.id)
+
+        return Response({'Status': True, 'items': created})
+
+    def put(self, request, *args, **kwargs):
+        item_id = request.data.get('id')
+        quantity = request.data.get('quantity')
+
+        if not item_id or quantity is None:
+            return Response(
+                {'Status': False, 'Errors': 'Нужны id и quantity'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            item = OrderItem.objects.get(
+                id=item_id,
+                order__user=request.user,
+                order__state='basket',
+            )
+        except OrderItem.DoesNotExist:
+            return Response(
+                {'Status': False, 'Errors': 'Позиция не найдена'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        item.quantity = quantity
+        item.save()
+        return Response({'Status': True})
+
+    def delete(self, request, *args, **kwargs):
+        item_id = request.data.get('id')
+        if not item_id:
+            return Response(
+                {'Status': False, 'Errors': 'Не указан id'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        deleted, _ = OrderItem.objects.filter(
+            id=item_id,
+            order__user=request.user,
+            order__state='basket',
+        ).delete()
+
+        if not deleted:
+            return Response(
+                {'Status': False, 'Errors': 'Позиция не найдена'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response({'Status': True})

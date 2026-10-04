@@ -4,7 +4,7 @@ from backend.models import (
     Category, Product, ProductInfo,
     Parameter, ProductParameter,
 )
-
+from backend.models import Order, OrderItem
 
 class UserSerializer(serializers.ModelSerializer):
     """Отдаёт данные пользователя. Пароль не включён."""
@@ -83,3 +83,27 @@ class ProductInfoSerializer(serializers.ModelSerializer):
             'quantity', 'price', 'price_rrc',
             'parameters',
         )
+
+
+
+class OrderItemSerializer(serializers.ModelSerializer):
+    # ProductInfo отдаём вложенно — фронту нужны цена, название, магазин
+    product_info = ProductInfoSerializer(read_only=True)
+    product_info_id = serializers.IntegerField(write_only=True)
+    sum = serializers.SerializerMethodField()
+
+    class Meta:
+        model = OrderItem
+        fields = ('id', 'product_info', 'product_info_id', 'quantity', 'sum')
+
+    def get_sum(self, obj):
+        # Цена * количество — просто чтобы клиенту не считать самому
+        return obj.product_info.price * obj.quantity
+
+
+class BasketSerializer(serializers.ModelSerializer):
+    items = OrderItemSerializer(source='ordered_items', many=True, read_only=True)
+
+    class Meta:
+        model = Order
+        fields = ('id', 'state', 'items')

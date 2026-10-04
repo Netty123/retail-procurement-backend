@@ -9,3 +9,4 @@ staticfiles/
 .idea/
 .vscode/
 *.log
+login.json

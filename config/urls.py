@@ -3,6 +3,10 @@ from django.urls import path, include
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    # API v1 — сюда будет расти всё остальное (auth, products, basket, orders)
     path('api/v1/', include('backend.urls')),
+
+    path(
+    'api/v1/user/password_reset/',
+    include('django_rest_passwordreset.urls', namespace='password_reset'),
+),
 ]

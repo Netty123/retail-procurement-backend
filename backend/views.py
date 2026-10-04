@@ -15,7 +15,10 @@ from django.db import transaction
 from django.http import JsonResponse
 from django.urls import reverse
 
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import status
+from rest_framework.filters import SearchFilter
+from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -26,7 +29,9 @@ from backend.models import (
     Parameter, ProductParameter,
     User, ConfirmEmailToken,
 )
-from backend.serializers import UserSerializer, RegisterUserSerializer
+from backend.serializers import (
+    UserSerializer, RegisterUserSerializer, ProductInfoSerializer,
+)
 
 
 class PartnerUpdate(APIView):
@@ -38,28 +43,22 @@ class PartnerUpdate(APIView):
     - только пользователь с type='shop';
     - принимает url на YAML с прайсом;
     - сносит старый прайс магазина и заливает новый.
-
-    Всё в одной транзакции: если что-то упадёт в середине, БД не останется
-    в половинчатом состоянии.
     """
 
     @transaction.atomic
     def post(self, request, *args, **kwargs):
-        # 1. Проверка авторизации
         if not request.user.is_authenticated:
             return JsonResponse(
                 {'Status': False, 'Error': 'Log in required'},
                 status=403,
             )
 
-        # 2. Только магазины могут обновлять прайс
         if request.user.type != 'shop':
             return JsonResponse(
                 {'Status': False, 'Error': 'Только для магазинов'},
                 status=403,
             )
 
-        # 3. URL обязателен
         url = request.data.get('url')
         if not url:
             return JsonResponse(
@@ -67,14 +66,13 @@ class PartnerUpdate(APIView):
                 status=400,
             )
 
-        # 4. Проверяем, что url вообще похож на url
         validate_url = URLValidator()
         try:
             validate_url(url)
         except ValidationError as e:
             return JsonResponse({'Status': False, 'Error': str(e)}, status=400)
 
-        # 5. Скачиваем YAML. Использую urlopen, чтобы не тащить requests ради одного вызова
+        # urlopen вместо requests, чтобы не тащить зависимость ради одного вызова
         try:
             stream = urlopen(url).read()
         except Exception as e:
@@ -85,14 +83,12 @@ class PartnerUpdate(APIView):
 
         data = load_yaml(stream, Loader=Loader)
 
-        # 6. Магазин привязываем к текущему пользователю.
-        # get_or_create по name+user — если такой магазин уже есть, используем его
         shop, _ = Shop.objects.get_or_create(
             name=data['shop'],
             user_id=request.user.id,
         )
 
-        # 7. Категории. id берём из YAML — это же id потом используется в goods.category
+        # id категорий берём из YAML — потом на них ссылается goods[].category
         for category in data.get('categories', []):
             category_object, _ = Category.objects.get_or_create(
                 id=category['id'],
@@ -101,11 +97,9 @@ class PartnerUpdate(APIView):
             category_object.shops.add(shop.id)
             category_object.save()
 
-        # 8. Перед заливкой нового прайса сносим старый.
-        # ProductParameter уйдут каскадом — у них FK на ProductInfo
+        # Сносим старый прайс — ProductParameter уйдут каскадом
         ProductInfo.objects.filter(shop_id=shop.id).delete()
 
-        # 9. Товары
         for item in data.get('goods', []):
             product, _ = Product.objects.get_or_create(
                 name=item['name'],
@@ -122,7 +116,7 @@ class PartnerUpdate(APIView):
                 shop_id=shop.id,
             )
 
-            # 10. Параметры в YAML — это словарь {имя: значение}, не список
+            # В YAML parameters — словарь {имя: значение}, не список
             for name, value in item['parameters'].items():
                 parameter_object, _ = Parameter.objects.get_or_create(name=name)
                 ProductParameter.objects.create(
@@ -135,13 +129,7 @@ class PartnerUpdate(APIView):
 
 
 class RegisterUserView(APIView):
-    """
-    POST /api/v1/user/register
-    body: email, username, first_name, last_name, password
-
-    Создаёт пользователя с is_active=False и шлёт письмо с токеном.
-    Активация — через /user/register/confirm.
-    """
+    """POST /api/v1/user/register — регистрация + письмо с токеном."""
 
     def post(self, request, *args, **kwargs):
         if not request.data:
@@ -179,12 +167,7 @@ class RegisterUserView(APIView):
 
 
 class ConfirmEmailView(APIView):
-    """
-    POST /api/v1/user/register/confirm
-    body: email, token
-
-    Активирует пользователя и удаляет использованный токен.
-    """
+    """POST /api/v1/user/register/confirm — активация по токену."""
 
     def post(self, request, *args, **kwargs):
         email = request.data.get('email')
@@ -213,12 +196,7 @@ class ConfirmEmailView(APIView):
 
 
 class LoginView(APIView):
-    """
-    POST /api/v1/user/login
-    body: email, password
-
-    Возвращает пару JWT: access и refresh.
-    """
+    """POST /api/v1/user/login — возвращает пару JWT."""
 
     def post(self, request, *args, **kwargs):
         email = request.data.get('email')
@@ -253,12 +231,41 @@ class LoginView(APIView):
 
 
 class UserDetailsView(APIView):
-    """
-    GET /api/v1/user/details
-    header: Authorization: Bearer <access_token>
-    """
+    """GET /api/v1/user/details — данные текущего пользователя."""
 
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
         return Response(UserSerializer(request.user).data)
+
+
+class ProductInfoView(ListAPIView):
+    """
+    GET /api/v1/products
+    Фильтры: shop, category, search (по имени товара).
+    Каталог открыт без авторизации.
+    """
+
+    queryset = ProductInfo.objects.select_related(
+        'product', 'product__category', 'shop',
+    ).prefetch_related('product_parameters__parameter')
+    serializer_class = ProductInfoSerializer
+    filter_backends = [DjangoFilterBackend, SearchFilter]
+    filterset_fields = ['shop']
+    search_fields = ['product__name']
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        category_id = self.request.query_params.get('category')
+        if category_id:
+            queryset = queryset.filter(product__category_id=category_id)
+        return queryset
+
+
+class ProductInfoDetailView(RetrieveAPIView):
+    """GET /api/v1/products/{id} — детали одного предложения."""
+
+    queryset = ProductInfo.objects.select_related(
+        'product', 'product__category', 'shop',
+    ).prefetch_related('product_parameters__parameter')
+    serializer_class = ProductInfoSerializer

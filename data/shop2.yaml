@@ -1,0 +1,54 @@
+shop: DNS
+categories:
+  - id: 300
+    name: Ноутбуки
+  - id: 301
+    name: Мониторы
+
+goods:
+  - id: 9000001
+    category: 300
+    model: apple/macbook-air-m2
+    name: Ноутбук Apple MacBook Air M2 13" 256GB
+    price: 95000
+    price_rrc: 109990
+    quantity: 5
+    parameters:
+      "Диагональ (дюйм)": 13.6
+      "Процессор": Apple M2
+      "Встроенная память (Гб)": 256
+      "Цвет": серый
+  - id: 9000002
+    category: 300
+    model: asus/zenbook-14
+    name: Ноутбук ASUS ZenBook 14 OLED
+    price: 85000
+    price_rrc: 89990
+    quantity: 3
+    parameters:
+      "Диагональ (дюйм)": 14
+      "Процессор": Intel Core i7
+      "Встроенная память (Гб)": 512
+      "Цвет": чёрный
+  - id: 9000003
+    category: 301
+    model: dell/u2723qe
+    name: Монитор Dell UltraSharp 27" 4K
+    price: 60000
+    price_rrc: 65000
+    quantity: 4
+    parameters:
+      "Диагональ (дюйм)": 27
+      "Разрешение (пикс)": 3840x2160
+      "Тип матрицы": IPS
+  - id: 9000004
+    category: 301
+    model: lg/27up850
+    name: Монитор LG 27UP850 27" 4K
+    price: 45000
+    price_rrc: 49000
+    quantity: 6
+    parameters:
+      "Диагональ (дюйм)": 27
+      "Разрешение (пикс)": 3840x2160
+      "Тип матрицы": IPS

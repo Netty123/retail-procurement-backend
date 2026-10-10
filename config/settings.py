@@ -164,3 +164,8 @@ SIMPLE_JWT = {
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 FRONTEND_URL = 'http://localhost:8000'
+
+# Email администратора — на него уходит накладная при новом заказе.
+# В реальном проекте список админов берут из настроек Django ADMINS,
+# но нам хватит одной строки.
+ADMIN_EMAIL = 'admin@admin.ru'

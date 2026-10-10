@@ -114,3 +114,19 @@ class ContactSerializer(serializers.ModelSerializer):
         )
         # user подставим во view — клиент его не передаёт
         read_only_fields = ('id',)
+
+
+class OrderSerializer(serializers.ModelSerializer):
+    # items — это позиции заказа, уже сериализованные OrderItemSerializer
+    items = OrderItemSerializer(source='ordered_items', many=True, read_only=True)
+    total_sum = serializers.SerializerMethodField()
+    contact = ContactSerializer(read_only=True)
+
+    class Meta:
+        model = Order
+        fields = ('id', 'state', 'dt', 'contact', 'items', 'total_sum')
+
+    def get_total_sum(self, obj):
+        # Сумма всех позиций. Для больших заказов лучше annotate,
+        # но у нас заказы небольшие — можно и в Python
+        return sum(item.product_info.price * item.quantity for item in obj.ordered_items.all())

@@ -32,11 +32,15 @@ from backend.models import (
     Contact,
 )
 from backend.serializers import (
-    UserSerializer, RegisterUserSerializer, ProductInfoSerializer, BasketSerializer, OrderItemSerializer, ContactSerializer,
+    UserSerializer, RegisterUserSerializer, 
+    ProductInfoSerializer, BasketSerializer, OrderItemSerializer, 
+    ContactSerializer, OrderSerializer,
 )
 
 from backend.models import Order, OrderItem
 from backend.serializers import BasketSerializer, OrderItemSerializer
+
+from django.conf import settings 
 
 class PartnerUpdate(APIView):
     """
@@ -460,3 +464,114 @@ class ContactView(APIView):
             )
 
         return Response({'Status': True})
+
+
+class OrderView(APIView):
+    """
+    Заказы пользователя. Только для авторизованных.
+
+    GET  — список заказов (все, кроме корзины)
+    POST — подтвердить заказ: корзина → new, привязать контакт, письма клиенту и админу
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        # Корзину в список не включаем — это ещё не заказ
+        orders = Order.objects.filter(user=request.user).exclude(state='basket')
+        serializer = OrderSerializer(orders, many=True)
+        return Response(serializer.data)
+
+    def post(self, request, *args, **kwargs):
+        contact_id = request.data.get('contact')
+        if not contact_id:
+            return Response(
+                {'Status': False, 'Errors': 'Не указан contact'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Контакт должен принадлежать этому пользователю — иначе можно
+        # оформить заказ на чужой адрес
+        try:
+            contact = Contact.objects.get(id=contact_id, user=request.user)
+        except Contact.DoesNotExist:
+            return Response(
+                {'Status': False, 'Errors': 'Контакт не найден'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Корзина должна существовать и быть непустой
+        try:
+            basket = Order.objects.get(user=request.user, state='basket')
+        except Order.DoesNotExist:
+            return Response(
+                {'Status': False, 'Errors': 'Корзина пуста'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not basket.ordered_items.exists():
+            return Response(
+                {'Status': False, 'Errors': 'Корзина пуста'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Переводим корзину в статус «новый» и привязываем контакт
+        basket.state = 'new'
+        basket.contact = contact
+        basket.save()
+
+        # Письмо клиенту — подтверждение приёма заказа
+        client_message = (
+            f'Здравствуйте!\n\n'
+            f'Ваш заказ №{basket.id} принят.\n'
+            f'Сумма: {sum(i.product_info.price * i.quantity for i in basket.ordered_items.all())} руб.\n'
+            f'Адрес доставки: {contact.city}, {contact.street}, {contact.house}\n'
+        )
+        send_mail(
+            subject=f'Заказ №{basket.id} принят',
+            message=client_message,
+            from_email=None,
+            recipient_list=[request.user.email],
+        )
+
+        # Накладная админу
+        admin_message = (
+            f'Новый заказ №{basket.id}\n'
+            f'Клиент: {request.user.email}\n'
+            f'Адрес: {contact.city}, {contact.street}, {contact.house}\n'
+            f'Позиции:\n'
+        )
+        for item in basket.ordered_items.all():
+            admin_message += (
+                f'  - {item.product_info.product.name} '
+                f'({item.product_info.shop.name}) '
+                f'× {item.quantity} = '
+                f'{item.product_info.price * item.quantity} руб.\n'
+            )
+        send_mail(
+            subject=f'Накладная по заказу №{basket.id}',
+            message=admin_message,
+            from_email=None,
+            recipient_list=[settings.ADMIN_EMAIL],
+        )
+
+        serializer = OrderSerializer(basket)
+        return Response({'Status': True, 'order': serializer.data})
+
+
+class OrderDetailView(APIView):
+    """GET /api/v1/order/{id} — детали одного заказа."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk, *args, **kwargs):
+        try:
+            order = Order.objects.get(id=pk, user=request.user)
+        except Order.DoesNotExist:
+            return Response(
+                {'Status': False, 'Errors': 'Заказ не найден'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = OrderSerializer(order)
+        return Response(serializer.data)

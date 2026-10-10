@@ -29,9 +29,10 @@ from backend.models import (
     Parameter, ProductParameter,
     User, ConfirmEmailToken,
     Order, OrderItem,
+    Contact,
 )
 from backend.serializers import (
-    UserSerializer, RegisterUserSerializer, ProductInfoSerializer, BasketSerializer, OrderItemSerializer,
+    UserSerializer, RegisterUserSerializer, ProductInfoSerializer, BasketSerializer, OrderItemSerializer, ContactSerializer,
 )
 
 from backend.models import Order, OrderItem
@@ -375,6 +376,86 @@ class BasketView(APIView):
         if not deleted:
             return Response(
                 {'Status': False, 'Errors': 'Позиция не найдена'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response({'Status': True})
+
+
+class ContactView(APIView):
+    """
+    Контакты пользователя. Только для авторизованных.
+    Каждый видит и правит только свои адреса.
+
+    GET     — список
+    POST    — добавить
+    PUT     — изменить (нужен id в теле)
+    DELETE  — удалить (нужен id в теле)
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        contacts = Contact.objects.filter(user=request.user)
+        serializer = ContactSerializer(contacts, many=True)
+        return Response(serializer.data)
+
+    def post(self, request, *args, **kwargs):
+        serializer = ContactSerializer(data=request.data)
+        if serializer.is_valid():
+            # user берём из токена, а не из тела — иначе можно подсунуть чужой id
+            serializer.save(user=request.user)
+            return Response(
+                {'Status': True, 'contact': serializer.data},
+                status=status.HTTP_201_CREATED,
+            )
+        return Response(
+            {'Status': False, 'Errors': serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    def put(self, request, *args, **kwargs):
+        contact_id = request.data.get('id')
+        if not contact_id:
+            return Response(
+                {'Status': False, 'Errors': 'Не указан id'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            contact = Contact.objects.get(id=contact_id, user=request.user)
+        except Contact.DoesNotExist:
+            return Response(
+                {'Status': False, 'Errors': 'Контакт не найден'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # partial=True — можно передать только те поля, которые меняем
+        serializer = ContactSerializer(contact, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({'Status': True, 'contact': serializer.data})
+        return Response(
+            {'Status': False, 'Errors': serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    def delete(self, request, *args, **kwargs):
+        contact_id = request.data.get('id')
+        if not contact_id:
+            return Response(
+                {'Status': False, 'Errors': 'Не указан id'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # filter().delete() возвращает (кол-во удалённых, детали)
+        deleted, _ = Contact.objects.filter(
+            id=contact_id, user=request.user,
+        ).delete()
+
+        if not deleted:
+            return Response(
+                {'Status': False, 'Errors': 'Контакт не найден'},
                 status=status.HTTP_404_NOT_FOUND,
             )
 

@@ -1,10 +1,6 @@
 from rest_framework import serializers
 from backend.models import User
-from backend.models import (
-    Category, Product, ProductInfo,
-    Parameter, ProductParameter,
-)
-from backend.models import Order, OrderItem
+from backend.models import User, Category, Product, ProductInfo, Parameter, ProductParameter, Order, OrderItem, Contact
 
 class UserSerializer(serializers.ModelSerializer):
     """Отдаёт данные пользователя. Пароль не включён."""
@@ -107,3 +103,14 @@ class BasketSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = ('id', 'state', 'items')
+
+
+class ContactSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Contact
+        fields = (
+            'id', 'city', 'street', 'house',
+            'structure', 'building', 'apartment', 'phone',
+        )
+        # user подставим во view — клиент его не передаёт
+        read_only_fields = ('id',)

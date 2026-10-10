@@ -9,6 +9,7 @@ from backend.views import (
     ProductInfoView,
     ProductInfoDetailView,
     BasketView,
+    ContactView,
 )
 
 app_name = 'backend'
@@ -25,4 +26,5 @@ urlpatterns = [
     path('products/<int:pk>', ProductInfoDetailView.as_view(), name='product-detail'),
 
     path('basket', BasketView.as_view(), name='basket'),
+    path('contacts', ContactView.as_view(), name='contacts'),
 ]
